@@ -110,6 +110,27 @@ func TestDumpMappingStrict(t *testing.T) {
 	}
 }
 
+func TestDumpMappingSupportsUnsignedAddresses(t *testing.T) {
+	const start = uint64(0xffffffffff600000)
+	reader := &unsignedAddressReaderAt{
+		start: start,
+		data:  []byte("vsyscall"),
+	}
+	var output bytes.Buffer
+	m := mapping{start: start, end: start + uint64(len(reader.data)), permissions: "r-xp", pathname: "[vsyscall]"}
+
+	unreadable, err := dumpMapping(reader, &output, m, make([]byte, len(reader.data)), 4096, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unreadable != 0 {
+		t.Fatalf("unreadable = %d, want 0", unreadable)
+	}
+	if !bytes.Equal(output.Bytes(), reader.data) {
+		t.Fatalf("output = %q, want %q", output.Bytes(), reader.data)
+	}
+}
+
 func TestPrintableStringCollectorAcrossChunks(t *testing.T) {
 	var output bytes.Buffer
 	collector := printableStringCollector{
@@ -160,6 +181,23 @@ func TestPrintableStringCollectorRegexp(t *testing.T) {
 type selectiveReaderAt struct {
 	data             []byte
 	badStart, badEnd int64
+}
+
+type unsignedAddressReaderAt struct {
+	start uint64
+	data  []byte
+}
+
+func (r *unsignedAddressReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	address := uint64(off)
+	if address < r.start || address-r.start >= uint64(len(r.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[address-r.start:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
 }
 
 func (r *selectiveReaderAt) ReadAt(p []byte, off int64) (int, error) {

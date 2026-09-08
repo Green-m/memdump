@@ -251,9 +251,6 @@ func run(opts options) (stats dumpStats, returnErr error) {
 
 	var total uint64
 	for _, m := range mappings {
-		if m.start > math.MaxInt64 || m.end > math.MaxInt64 {
-			return stats, fmt.Errorf("映射地址超出当前工具支持范围: %x-%x", m.start, m.end)
-		}
 		if opts.mode == modeDump {
 			if math.MaxUint64-total < m.size() || total+m.size() > math.MaxInt64 {
 				return stats, errors.New("内存映射总大小超出当前工具支持范围")
@@ -274,12 +271,45 @@ func run(opts options) (stats dumpStats, returnErr error) {
 	}()
 
 	if opts.mode == modeDump {
-		return runDump(opts, memFile, mappings)
+		return runDump(opts, procMemReader{file: memFile}, mappings)
 	}
-	return runScan(opts, memFile, mappings)
+	return runScan(opts, procMemReader{file: memFile}, mappings)
 }
 
-func runDump(opts options, memFile *os.File, mappings []mapping) (stats dumpStats, returnErr error) {
+// procMemReader bypasses os.File.ReadAt's rejection of negative int64 offsets.
+// Linux marks /proc/PID/mem as accepting unsigned offsets, which is required for
+// special mappings such as x86-64's ffffffffff600000 [vsyscall] page.
+type procMemReader struct {
+	file *os.File
+}
+
+func (r procMemReader) ReadAt(p []byte, off int64) (n int, err error) {
+	for len(p) > 0 {
+		read, readErr := syscall.Pread(int(r.file.Fd()), p, off)
+		if read < 0 {
+			read = 0
+		}
+		if read > len(p) {
+			return n, errors.New("内存读取器返回了无效的字节数")
+		}
+		n += read
+		p = p[read:]
+		off += int64(read)
+
+		if errors.Is(readErr, syscall.EINTR) {
+			continue
+		}
+		if readErr != nil {
+			return n, &os.PathError{Op: "read", Path: r.file.Name(), Err: readErr}
+		}
+		if read == 0 {
+			return n, io.EOF
+		}
+	}
+	return n, nil
+}
+
+func runDump(opts options, memFile io.ReaderAt, mappings []mapping) (stats dumpStats, returnErr error) {
 	output, err := createOutput(opts.outputPath, opts.force)
 	if err != nil {
 		return stats, err
@@ -350,7 +380,7 @@ func runDump(opts options, memFile *os.File, mappings []mapping) (stats dumpStat
 	return stats, nil
 }
 
-func runScan(opts options, memFile *os.File, mappings []mapping) (stats dumpStats, returnErr error) {
+func runScan(opts options, memFile io.ReaderAt, mappings []mapping) (stats dumpStats, returnErr error) {
 	var destination io.Writer = os.Stdout
 	var output *os.File
 	outputOK := opts.outputPath == "-"
