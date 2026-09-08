@@ -18,11 +18,11 @@ func TestParseOptionsHelp(t *testing.T) {
 }
 
 func TestParseOptionsScanModes(t *testing.T) {
-	stringsOpts, err := parseOptions([]string{"-strings", "123", "-"})
+	stringsOpts, err := parseOptions([]string{"-strings", "-address", "123", "-"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stringsOpts.mode != modeStrings || stringsOpts.mapPath != "-" {
+	if stringsOpts.mode != modeStrings || stringsOpts.mapPath != "-" || !stringsOpts.showAddress {
 		t.Fatalf("unexpected strings options: %+v", stringsOpts)
 	}
 
@@ -30,7 +30,7 @@ func TestParseOptionsScanModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if regexpOpts.mode != modeRegexp || regexpOpts.regexpText != `token=[[:alnum:]]+` {
+	if regexpOpts.mode != modeRegexp || regexpOpts.regexpText != `token=[[:alnum:]]+` || regexpOpts.showAddress {
 		t.Fatalf("unexpected regexp options: %+v", regexpOpts)
 	}
 
@@ -39,6 +39,9 @@ func TestParseOptionsScanModes(t *testing.T) {
 	}
 	if _, err := parseOptions([]string{"-regex", "[", "123", "-"}); err == nil {
 		t.Fatal("expected invalid regexp error")
+	}
+	if _, err := parseOptions([]string{"-address", "123", "dump.bin"}); err == nil {
+		t.Fatal("expected address mode error")
 	}
 }
 
@@ -148,7 +151,7 @@ func TestPrintableStringCollectorAcrossChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "0000000000001003 secret-value\n"
+	want := "secret-value\n"
 	if output.String() != want {
 		t.Fatalf("output = %q, want %q", output.String(), want)
 	}
@@ -169,12 +172,30 @@ func TestPrintableStringCollectorRegexp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "000000000000200e prefix token=abc123 suffix\n"
+	want := "prefix token=abc123 suffix\n"
 	if output.String() != want {
 		t.Fatalf("output = %q, want %q", output.String(), want)
 	}
 	if collector.matchCount != 1 {
 		t.Fatalf("match count = %d, want 1", collector.matchCount)
+	}
+}
+
+func TestPrintableStringCollectorWithAddress(t *testing.T) {
+	var output bytes.Buffer
+	collector := printableStringCollector{
+		output:      &output,
+		minLength:   4,
+		matches:     func([]byte) bool { return true },
+		showAddress: true,
+	}
+	if err := collector.consume(0x3000, []byte("value\x00")); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "0000000000003000 value\n"
+	if output.String() != want {
+		t.Fatalf("output = %q, want %q", output.String(), want)
 	}
 }
 

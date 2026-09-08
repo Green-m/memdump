@@ -40,12 +40,14 @@ sudo ./bin/memdump-linux-amd64 -regex 'token=[[:alnum:]]+' 1234 matches.txt
 3. `-regex EXPR` 提取字符串后使用 Go 正则表达式过滤；普通文本也可以直接
    作为正则表达式，因此不再单独提供固定字符串模式。
 
-扫描模式只输出 `虚拟地址 可打印字符串`，不会创建完整 dump 或 `.maps` 文件。
-输出文件指定为 `-` 时结果写入标准输出，可以继续通过管道处理：
+扫描模式默认每行只输出可打印字符串，不会创建完整 dump 或 `.maps`
+文件。使用 `-address` 时输出格式改为 `虚拟地址 可打印字符串`。输出文件
+指定为 `-` 时结果写入标准输出，可以继续通过管道处理：
 
 ```bash
 sudo ./bin/memdump-linux-amd64 -strings 1234 - | less
 sudo ./bin/memdump-linux-amd64 -regex 'https?://[^ ]+' 1234 - > urls.txt
+sudo ./bin/memdump-linux-amd64 -address -strings 1234 strings-with-address.txt
 ```
 
 ### 正则扫描示例
@@ -83,7 +85,8 @@ sudo ./bin/memdump-linux-amd64 -regex '[A-Fa-f0-9]{32,}' 1234 hex.txt
 
 此外，这些表达式只识别“Base64 样式”的字符集，不会验证内容是否真的
 Base64 编码。当一个可打印字符串中的任意位置匹配正则时，memdump 输出的
-是该完整字符串及其起始虚拟地址，而不是仅输出正则匹配到的部分。
+是该完整字符串，而不是仅输出正则匹配到的部分。使用 `-address`
+时才会在字符串前附加其起始虚拟地址。
 
 默认完整 dump 的映射索引每一行依次记录：输出文件范围、进程虚拟地址范围、
 权限、原文件偏移、设备号、inode 和映射名称。由于输出是各映射的紧凑拼接
@@ -91,6 +94,7 @@ Base64 编码。当一个可打印字符串中的任意位置匹配正则时，m
 
 常用选项：
 
+- `-address`：扫描模式下在每行字符串前输出起始虚拟地址。
 - `-anonymous-only`：只导出匿名映射、堆、栈等方括号标记的映射。
 - `-strings`：流式提取全部可打印字符串。
 - `-regex EXPR`：只输出正则匹配的可打印字符串。

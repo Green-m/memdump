@@ -33,6 +33,7 @@ type options struct {
 	outputPath    string
 	mapPath       string
 	chunkSize     int
+	showAddress   bool
 	force         bool
 	strict        bool
 	quiet         bool
@@ -122,6 +123,7 @@ func parseOptions(args []string) (options, error) {
 	var opts options
 	fs := flag.NewFlagSet("memdump", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	fs.BoolVar(&opts.showAddress, "address", false, "扫描模式下输出字符串起始虚拟地址")
 	fs.IntVar(&opts.chunkSize, "chunk-size", defaultChunkSize, "每次读取的字节数")
 	fs.StringVar(&opts.mapPath, "maps", "", "映射索引文件路径；默认 <输出文件>.maps，- 表示禁用")
 	fs.BoolVar(&opts.force, "force", false, "覆盖已存在的输出文件")
@@ -164,6 +166,9 @@ func parseOptions(args []string) (options, error) {
 		}
 		opts.mode = modeRegexp
 	}
+	if opts.mode == modeDump && opts.showAddress {
+		return opts, errors.New("-address 只能与 -strings 或 -regex 一起使用")
+	}
 
 	opts.pid = int(pid64)
 	opts.outputPath = fs.Arg(1)
@@ -190,6 +195,7 @@ func usageText() string {
 -regex 时直接流式扫描进程内存，只输出匹配结果，不保存完整内存。
 
 选项:
+  -address          扫描模式下输出字符串起始虚拟地址
   -anonymous-only   只导出匿名及方括号标记的映射
   -chunk-size N     每次读取 N 字节（默认 1048576）
   -force            覆盖已有文件
@@ -215,9 +221,9 @@ func usageText() string {
   -regex '[A-Fa-f0-9]{32,}'
       32 个或更多连续十六进制字符
 
-{20} 也会匹配更长连续串中的 20 字符子串。匹配模式输出的是
-"虚拟地址 完整可打印字符串"，而不是仅输出正则命中的部分；输出文件为 -
-时写到标准输出。`
+{20} 也会匹配更长连续串中的 20 字符子串。扫描模式默认只输出完整
+可打印字符串，而不是仅输出正则命中的部分；使用 -address 可在每行前输出
+字符串起始虚拟地址。输出文件为 - 时写到标准输出。`
 }
 
 func run(opts options) (stats dumpStats, returnErr error) {
@@ -430,9 +436,10 @@ func runScan(opts options, memFile io.ReaderAt, mappings []mapping) (stats dumpS
 
 	writer := bufio.NewWriterSize(destination, 64*1024)
 	collector := printableStringCollector{
-		output:    writer,
-		minLength: opts.minStringLen,
-		matches:   matcher,
+		output:      writer,
+		minLength:   opts.minStringLen,
+		matches:     matcher,
+		showAddress: opts.showAddress,
 	}
 	buffer := make([]byte, opts.chunkSize)
 	pageSize := os.Getpagesize()
@@ -563,12 +570,13 @@ func dumpMapping(mem io.ReaderAt, output io.Writer, m mapping, buffer []byte, pa
 }
 
 type printableStringCollector struct {
-	output     io.Writer
-	minLength  int
-	matches    func([]byte) bool
-	current    []byte
-	start      uint64
-	matchCount uint64
+	output      io.Writer
+	minLength   int
+	matches     func([]byte) bool
+	showAddress bool
+	current     []byte
+	start       uint64
+	matchCount  uint64
 }
 
 func (c *printableStringCollector) consume(address uint64, data []byte) error {
@@ -589,7 +597,13 @@ func (c *printableStringCollector) consume(address uint64, data []byte) error {
 
 func (c *printableStringCollector) finish() error {
 	if len(c.current) >= c.minLength && c.matches(c.current) {
-		if _, err := fmt.Fprintf(c.output, "%016x %s\n", c.start, c.current); err != nil {
+		var err error
+		if c.showAddress {
+			_, err = fmt.Fprintf(c.output, "%016x %s\n", c.start, c.current)
+		} else {
+			_, err = fmt.Fprintf(c.output, "%s\n", c.current)
+		}
+		if err != nil {
 			return fmt.Errorf("写入匹配结果: %w", err)
 		}
 		c.matchCount++
