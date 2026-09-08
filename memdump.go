@@ -201,7 +201,23 @@ func usageText() string {
   -strict           遇到无法读取的内存页时失败
   -strings          提取所有可打印字符串
 
-匹配模式的输出格式为 "虚拟地址 可打印字符串"；输出文件为 - 时写到标准输出。`
+正则示例:
+  -regex '[A-Za-z0-9+/]{20}'
+      包含任意连续 20 个 Base64 字母表字符
+  -regex '[A-Za-z0-9+/]{20,}={0,2}'
+      包含 20 个或更多 Base64 字母表字符，可带填充符
+  -regex '[A-Za-z0-9_-]{20,}={0,2}'
+      URL-safe Base64 或长随机 token
+  -regex '[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+      JWT 样式的三段式 token
+  -regex '(?i)(token|secret|password)[ ]*[:=][ ]*[A-Za-z0-9_+/=-]{8,}'
+      token/secret/password 等键值对
+  -regex '[A-Fa-f0-9]{32,}'
+      32 个或更多连续十六进制字符
+
+{20} 也会匹配更长连续串中的 20 字符子串。匹配模式输出的是
+"虚拟地址 完整可打印字符串"，而不是仅输出正则命中的部分；输出文件为 -
+时写到标准输出。`
 }
 
 func run(opts options) (stats dumpStats, returnErr error) {

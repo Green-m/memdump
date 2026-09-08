@@ -48,6 +48,43 @@ sudo ./bin/memdump-linux-amd64 -strings 1234 - | less
 sudo ./bin/memdump-linux-amd64 -regex 'https?://[^ ]+' 1234 - > urls.txt
 ```
 
+### 正则扫描示例
+
+`-regex` 使用 Go 正则表达式过滤完整的可打印 ASCII 字符串。建议在
+Shell 中始终用单引号包住表达式，避免 `*`、`$` 等字符被 Shell
+提前解释。
+
+```bash
+# 包含任意连续 20 个 Base64 字母表字符的字符串
+sudo ./bin/memdump-linux-amd64 -regex '[A-Za-z0-9+/]{20}' 1234 base64-20.txt
+
+# 连续 20 个或更多 Base64 字母表字符，可带 0～2 个填充符
+sudo ./bin/memdump-linux-amd64 -regex '[A-Za-z0-9+/]{20,}={0,2}' 1234 base64.txt
+
+# 恰好 20 个 Base64 字母表字符，两端不能紧邻同一字母表中的字符
+sudo ./bin/memdump-linux-amd64 -regex '(^|[^A-Za-z0-9+/])[A-Za-z0-9+/]{20}([^A-Za-z0-9+/]|$)' 1234 base64-exact-20.txt
+
+# URL-safe Base64 或长随机 token
+sudo ./bin/memdump-linux-amd64 -regex '[A-Za-z0-9_-]{20,}={0,2}' 1234 tokens.txt
+
+# JWT 样式的三段式 token
+sudo ./bin/memdump-linux-amd64 -regex '[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}' 1234 jwt.txt
+
+# token/secret/password 等键值对，键名不区分大小写
+sudo ./bin/memdump-linux-amd64 -regex '(?i)(token|secret|password)[ ]*[:=][ ]*[A-Za-z0-9_+/=-]{8,}' 1234 secrets.txt
+
+# 32 个或更多连续十六进制字符
+sudo ./bin/memdump-linux-amd64 -regex '[A-Fa-f0-9]{32,}' 1234 hex.txt
+```
+
+`{20}` 约束的是“匹配子串恰好有 20 个字符”，不代表整个候选字符串
+只能有 20 个字符。例如 30 个连续 Base64 字母表字符中仍然包含一个
+20 字符的匹配；如需排除更长的连续串，使用上面带两端边界的写法。
+
+此外，这些表达式只识别“Base64 样式”的字符集，不会验证内容是否真的
+Base64 编码。当一个可打印字符串中的任意位置匹配正则时，memdump 输出的
+是该完整字符串及其起始虚拟地址，而不是仅输出正则匹配到的部分。
+
 默认完整 dump 的映射索引每一行依次记录：输出文件范围、进程虚拟地址范围、
 权限、原文件偏移、设备号、inode 和映射名称。由于输出是各映射的紧凑拼接
 文件，分析某个虚拟地址时应使用该索引换算偏移。
