@@ -7,16 +7,24 @@
 ## 构建
 
 ```bash
-CGO_ENABLED=0 go build -trimpath -o memdump .
+./scripts/build.sh
+```
+
+脚本默认生成 Linux `amd64`、`arm64`、`386`、`arm/v7`、`riscv64` 和
+`loong64` 六种静态二进制文件，统一存放在 `bin/`，并生成
+`bin/SHA256SUMS`。也可以只构建指定目标：
+
+```bash
+./scripts/build.sh linux/amd64 linux/arm64
 ```
 
 ## 使用
 
 ```bash
-./memdump [选项] <pid> <输出文件>
+./bin/memdump-linux-amd64 [选项] <pid> <输出文件>
 
 # 示例
-sudo ./memdump -stop 1234 process.dump
+sudo ./bin/memdump-linux-amd64 -stop 1234 process.dump
 strings process.dump | less
 ```
 
