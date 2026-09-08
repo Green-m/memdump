@@ -1,8 +1,8 @@
 # memdump
 
-`memdump` 是一个 Linux 进程内存导出工具。它读取 `/proc/<pid>/maps` 和
-`/proc/<pid>/mem`，把所有可读映射顺序写入一个原始二进制文件，并生成一份
-地址到输出偏移的索引。
+`memdump` 是一个 Linux 进程内存导出及扫描工具。它读取 `/proc/<pid>/maps`
+和 `/proc/<pid>/mem`，既可以导出完整内存，也可以直接流式提取或过滤其中的
+可打印字符串，避免把大体积内存完整写入磁盘。
 
 ## 构建
 
@@ -23,18 +23,41 @@
 ```bash
 ./bin/memdump-linux-amd64 [选项] <pid> <输出文件>
 
-# 示例
+# 默认模式：完整内存 dump
 sudo ./bin/memdump-linux-amd64 -stop 1234 process.dump
-strings process.dump | less
+
+# strings 模式：直接输出所有可打印 ASCII 字符串，不生成完整 dump
+sudo ./bin/memdump-linux-amd64 -strings 1234 -
+
+# 正则模式：只将匹配的可打印字符串写入结果文件
+sudo ./bin/memdump-linux-amd64 -regex 'token=[[:alnum:]]+' 1234 matches.txt
 ```
 
-默认还会生成 `process.dump.maps`。其每一行依次记录：输出文件范围、进程虚拟
-地址范围、权限、原文件偏移、设备号、inode 和映射名称。由于输出是各映射的
-紧凑拼接文件，分析某个虚拟地址时应使用该索引换算偏移。
+工具有三种互斥的运行形式：
+
+1. 不指定扫描参数时完整导出内存，并生成 `process.dump.maps` 地址索引。
+2. `-strings` 流式提取长度不小于 `-min-string` 的可打印 ASCII 字符串。
+3. `-regex EXPR` 提取字符串后使用 Go 正则表达式过滤；普通文本也可以直接
+   作为正则表达式，因此不再单独提供固定字符串模式。
+
+扫描模式只输出 `虚拟地址 可打印字符串`，不会创建完整 dump 或 `.maps` 文件。
+输出文件指定为 `-` 时结果写入标准输出，可以继续通过管道处理：
+
+```bash
+sudo ./bin/memdump-linux-amd64 -strings 1234 - | less
+sudo ./bin/memdump-linux-amd64 -regex 'https?://[^ ]+' 1234 - > urls.txt
+```
+
+默认完整 dump 的映射索引每一行依次记录：输出文件范围、进程虚拟地址范围、
+权限、原文件偏移、设备号、inode 和映射名称。由于输出是各映射的紧凑拼接
+文件，分析某个虚拟地址时应使用该索引换算偏移。
 
 常用选项：
 
 - `-anonymous-only`：只导出匿名映射、堆、栈等方括号标记的映射。
+- `-strings`：流式提取全部可打印字符串。
+- `-regex EXPR`：只输出正则匹配的可打印字符串。
+- `-min-string N`：设置扫描模式的最小字符串长度，默认是 4。
 - `-stop`：导出期间向目标进程发送 `SIGSTOP`，结束时保证发送 `SIGCONT`。
 - `-strict`：任一页无法读取就报错；默认以零填充并继续。
 - `-maps -`：不生成映射索引。

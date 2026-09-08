@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,31 @@ func TestParseOptionsHelp(t *testing.T) {
 	_, err := parseOptions([]string{"-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("error = %v, want flag.ErrHelp", err)
+	}
+}
+
+func TestParseOptionsScanModes(t *testing.T) {
+	stringsOpts, err := parseOptions([]string{"-strings", "123", "-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stringsOpts.mode != modeStrings || stringsOpts.mapPath != "-" {
+		t.Fatalf("unexpected strings options: %+v", stringsOpts)
+	}
+
+	regexpOpts, err := parseOptions([]string{"-regex", `token=[[:alnum:]]+`, "123", "matches.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexpOpts.mode != modeRegexp || regexpOpts.regexpText != `token=[[:alnum:]]+` {
+		t.Fatalf("unexpected regexp options: %+v", regexpOpts)
+	}
+
+	if _, err := parseOptions([]string{"-strings", "-regex", "token", "123", "-"}); err == nil {
+		t.Fatal("expected mutually exclusive mode error")
+	}
+	if _, err := parseOptions([]string{"-regex", "[", "123", "-"}); err == nil {
+		t.Fatal("expected invalid regexp error")
 	}
 }
 
@@ -81,6 +107,53 @@ func TestDumpMappingStrict(t *testing.T) {
 	_, err := dumpMapping(reader, &output, mapping{start: 0, end: 8}, make([]byte, 8), 4, true)
 	if err == nil {
 		t.Fatal("expected strict read error")
+	}
+}
+
+func TestPrintableStringCollectorAcrossChunks(t *testing.T) {
+	var output bytes.Buffer
+	collector := printableStringCollector{
+		output:    &output,
+		minLength: 4,
+		matches:   func([]byte) bool { return true },
+	}
+	if err := collector.consume(0x1000, []byte{'x', 'x', 0, 's', 'e'}); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.consume(0x1005, []byte("cret-value\x00end")); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "0000000000001003 secret-value\n"
+	if output.String() != want {
+		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
+	if collector.matchCount != 1 {
+		t.Fatalf("match count = %d, want 1", collector.matchCount)
+	}
+}
+
+func TestPrintableStringCollectorRegexp(t *testing.T) {
+	var output bytes.Buffer
+	re := regexp.MustCompile(`token=[[:alnum:]]+`)
+	collector := printableStringCollector{
+		output:    &output,
+		minLength: 4,
+		matches:   re.Match,
+	}
+	if err := collector.consume(0x2000, []byte("ordinary text\x00prefix token=abc123 suffix\x00tiny\x00")); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "000000000000200e prefix token=abc123 suffix\n"
+	if output.String() != want {
+		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
+	if collector.matchCount != 1 {
+		t.Fatalf("match count = %d, want 1", collector.matchCount)
 	}
 }
 
